@@ -1,0 +1,1 @@
+This was the task to optimize our department SQL queries whose we're running every week. The request process time was slow and required more than 1 server to get the data. Solution was to parameterize SQL queries, use temp. tables and get data from one server. Completed with T-SQL in Microsoft SQL Studio databases.

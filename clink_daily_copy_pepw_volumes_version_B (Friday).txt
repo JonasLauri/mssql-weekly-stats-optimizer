@@ -1,0 +1,198 @@
+/*
+query to retrieve prescreening volumes - can be used as soon as 
+the last prescreening batch has been finished screening
+result goes to statistics excel row 22 under "No. of prescreening cases 3.3" value
+*/
+
+BEGIN
+    SET NOCOUNT ON;
+    IF object_id('tempdb..#prescreening_batches') IS NOT NULL
+    DROP TABLE #prescreening_batches;
+	DECLARE @start_date datetime;
+	DECLARE @end_date datetime;
+	SET @start_date = '2024-06-06'
+	SET @end_date = '2024-06-07'
+    SELECT 
+		ID
+    INTO #prescreening_batches
+    FROM 
+		BATCH
+    /*dates from Thursday 00:00 of last week to whenever you know that 
+	the last prescreening batch was uploaded and screened in CL */
+    WHERE 
+		SCREENED_DATE BETWEEN @start_date AND @end_date
+    AND 
+		FILE_NAME LIKE 'PRESCREEN%'
+
+    SELECT 
+		COUNT (DISTINCT RES.ID) AS PRESCREENING_VOLUME
+    FROM 
+		RESULTS as RES
+    JOIN 
+		RESULT_SD as SD
+		ON (RES.ID = SD.RESULT_ID)
+    WHERE 
+		BATCH_ID IN (SELECT * FROM #prescreening_batches)
+    AND 
+		SD.FOLDER_ID = 10037
+END
+
+/*
+this is option B method to extract TEST RUN report as soon as
+the last prescreening batch has been finished screening
+export results to excel file and store it to False Positive reduction rules folder (to current week folder)
+*/
+
+
+
+BEGIN
+	SET NOCOUNT ON;
+	IF object_id('tempdb..#PRESCREENING_BATCHES2') IS NOT NULL
+	DROP TABLE #PRESCREENING_BATCHES2;
+	DECLARE @start_date2 datetime;
+	DECLARE @end_date2 datetime;
+	SET @start_date2 = '2024-06-06';
+	SET @end_date2 = '2024-06-07';
+
+	SELECT 
+		ID
+	INTO #PRESCREENING_BATCHES2
+	FROM 
+		BATCH
+	WHERE 
+		SCREENED_DATE BETWEEN @start_date2 AND @end_date2
+	AND 
+		FILE_NAME LIKE 'PRESCREEN%'
+END;
+
+
+
+BEGIN
+    SET NOCOUNT ON;
+    IF object_id('tempdb..#SOURCE') IS NOT NULL
+	DROP TABLE #SOURCE;
+	DECLARE @start_date3 datetime;
+	DECLARE @end_date3 datetime;
+	SET @start_date3 = '2024-06-06';
+	SET @end_date3 = '2024-06-07';
+
+SELECT
+	A.ID AS TRANSACTION_ID,
+	RCD.FIELD,
+	RCD.FIELD_VALUE
+INTO #SOURCE
+FROM (
+	SELECT
+		ID,
+		SCREENED_DATE
+	FROM
+		RESULTS
+	WHERE
+		SCREENED_DATE BETWEEN @start_date3 AND @end_date3) AS A
+LEFT JOIN
+	RESULT_CUST_DATA AS RCD
+ON
+	A.ID = RCD.RESULT_ID
+WHERE
+	RCD.RESULT_ID IS NOT NULL
+--AND
+	--A.ID = '496244124')
+
+END;
+
+
+
+WITH PIVOTED_CUSTOMERS_DATA AS (
+SELECT
+	TRANSACTION_ID, 
+	[COUNTRY OF RESIDENCE] AS COUNTRY_OF_RESIDENCE,
+	[CUSTOMER NAME] AS CUSTOMER_NAME,
+	[CUSTOMER TYPE] AS CUSTOMER_TYPE,
+	[CUSTOMER UNIQUE ID] AS CUSTOMER_UNIQUE_ID,
+	[DATA SOURCE CODE] AS DATA_SOURCE_CODE,
+	[DATE OF BIRTH] AS DATE_OF_BIRTH,
+	[NATIONALITY] AS NATIONALITY
+FROM (
+
+	SELECT
+		TRANSACTION_ID,
+		FIELD,
+		FIELD_VALUE
+	FROM
+		#SOURCE
+	--WHERE
+		--TRANSACTION_ID = '496244124' ---TRANSACTION ID FOR TESTING
+		) FINAL_TABLE
+
+PIVOT (
+	MAX(FIELD_VALUE)
+	FOR FIELD IN ([COUNTRY OF RESIDENCE], [CUSTOMER NAME], [CUSTOMER TYPE], [CUSTOMER UNIQUE ID], [DATA SOURCE CODE], [DATE OF BIRTH], [NATIONALITY])
+	) AS PIVOT_TABLE
+)
+
+
+
+
+SELECT * 
+FROM (
+	SELECT
+		ROW_NUMBER() OVER (PARTITION BY RES.UNIQUEFIELD ORDER BY RES.ID) AS ID_NUM,
+		RES.ID AS TRANSACTION_ID,
+		RES.BATCH_ID,
+		C.COUNTRY_OF_RESIDENCE,
+		C.CUSTOMER_NAME,
+		--cus_noMP.legal_name AS CUSTOMER_LEGAL_NAME,
+		C.CUSTOMER_TYPE,
+		C.CUSTOMER_UNIQUE_ID,
+		C.DATA_SOURCE_CODE,
+		C.DATE_OF_BIRTH,
+		SD.LAST_UPDATE_DATE AS LAST_UPDATE,
+		SD.ID AS MATCH_ID,
+		CASE
+			WHEN SD.LAST_DISP_CODE = 'C' THEN 'Changed'
+			WHEN SD.LAST_DISP_CODE = 'O' THEN 'Open'
+			ELSE SD.LAST_DISP_CODE
+		END AS MATCH_STATUS,
+		SD.MATCH_TYPE,
+		SD.MATCHED_FIELD,
+		C.NATIONALITY,
+		SD.MAX_ENTITY_SCORE * 100 AS RISK_SCORE,
+		RES.SCREENED_DATE,
+		RES.SCREENED_BY AS SCREEN_USER,
+		SD.SDTEXT AS STOP_DESCRIPTOR,
+		SD.LAST_UPDATE_USER AS UPDATED_BY,
+		ETY.RESULT_SD_ID,
+		ETY_V.SOURCE_CODE AS SOURCE,
+		ETY_V.ENTITY_TYPE AS ENTITY_TYPE,
+		ETY_V.ENTITY_TEXT AS ENTITY
+	FROM 
+		RESULTS AS RES
+	JOIN 
+		RESULT_SD AS SD
+		ON (RES.ID = SD.RESULT_ID)
+	LEFT JOIN 
+		PIVOTED_CUSTOMERS_DATA AS C
+		ON (C.TRANSACTION_ID = RES.ID)
+	JOIN 
+		RESULT_SD_ENT_VER_XREF AS ETY
+		ON (SD.ID = ETY.RESULT_SD_ID)
+	JOIN 
+		RESULT_SD_ENTITY_VERSIONS AS ETY_V
+		ON (ETY.RESULT_SD_ENT_VER_ENT_ID = ETY_V.ID)
+	WHERE RES.BATCH_ID IN (SELECT * FROM #PRESCREENING_BATCHES2)
+	AND SD.FOLDER_ID = 10037
+	) SUB_TB
+WHERE 
+	ID_NUM = '1'
+--AND
+	--TRANSACTION_ID= '496244124' ---transaction_id for testing
+
+
+
+
+/*
+there is no query to check for "Cases saved by rules (Prescreening)" value
+the app opens last week's letter.docx file and sums hits of each entity from the 1st list
+and the result then goes to statistics excel row 14
+*/
+

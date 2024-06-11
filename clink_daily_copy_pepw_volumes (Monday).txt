@@ -1,0 +1,180 @@
+/*
+query to retrieve weekly screening saved by rules volumes - can be used as soon as 
+the last screening batch has been finished screening
+result goes to statistics excel row 15 under "Cases saved by rules (Weekly screening)" value
+*/
+
+BEGIN
+    SET NOCOUNT ON;
+    IF OBJECT_ID('tempdb..#pep_batches') IS NOT NULL
+    DROP TABLE #pep_batches;
+    IF OBJECT_ID('tempdb..#rule_ids') IS NOT NULL
+    DROP TABLE #rule_ids;
+	DECLARE @srws_start_date datetime;
+	DECLARE @srws_end_date datetime;
+	DECLARE @srws_rules_start_date datetime;
+	DECLARE @srws_rules_end_date datetime;
+	SET @srws_start_date = '2024-05-17 00:00:00.000';
+	SET @srws_end_date = '2024-05-20 23:59:59.997';
+	SET @srws_rules_start_date = '2024-05-17 00:00:00.000';
+	SET @srws_rules_end_date = '2024-05-20 23:59:59.997';
+    SELECT id
+    INTO #pep_batches
+    FROM CLINK_DAILY_COPY.dbo.BATCH
+	-- start date of Friday of the last week up to whenever last PEP screening batch was screened in CL
+    WHERE screened_date BETWEEN @srws_start_date AND @srws_end_date
+    AND user_id = 'batchpep'
+    AND file_name NOT LIKE 'mp%'
+    SELECT id, cust_rule_id
+    INTO #rule_ids
+    FROM CLINK_DAILY_COPY.dbo.MATCH_RULES
+    -- using start_date variable for end part because temp BRs are always created on Friday without exceptions
+    WHERE created_date BETWEEN @srws_rules_start_date AND @srws_rules_end_date
+    SELECT count(DISTINCT sd.result_id) as cases_saved_by_rules_weekly_screening
+    FROM CLINK_DAILY_COPY.dbo.RESULT_SD as sd
+    JOIN CLINK_DAILY_COPY.dbo.RESULT_CUST_DATA as custd
+    ON (sd.result_id = custd.result_id)
+    JOIN CLINK_DAILY_COPY.dbo.RESULTS as res
+    ON (sd.result_id = res.id)
+    WHERE last_disp_code = 'r'
+	-- dates between the start of weekly PEP screening and the end of weekly PEP screening
+    AND last_update_date BETWEEN @srws_start_date AND @srws_end_date
+    AND last_update_user = 'batchpep'
+    AND custd.field = 'customer type'
+    AND custd.field_value = 'individ'
+    AND match_score >= 0.79
+    AND match_type = 'pep'
+    AND res.batch_id IN (SELECT * FROM #pep_batches)
+    AND sd.rule_detail_id IN (SELECT DISTINCT id FROM #rule_ids)
+END
+
+/*
+query to retrieve weekly PEP volumes - can be used as soon as 
+the last screening batch has been finished screening
+result goes to statistics excel row 19 under "No of PEP weekly cases" value
+*/
+BEGIN
+    SET NOCOUNT ON;
+    IF OBJECT_ID('tempdb..#batches') IS NOT NULL
+    DROP TABLE #batches
+    IF OBJECT_ID('tempdb..#pepw_folders') IS NOT NULL
+    DROP TABLE #pepw_folders
+    IF OBJECT_ID('tempdb..#pep_weekly_1') IS NOT NULL
+    DROP TABLE #pep_weekly_1
+    IF OBJECT_ID('tempdb..#pep_weekly_2') IS NOT NULL
+    DROP TABLE #pep_weekly_2
+	DECLARE @pepw_start_date datetime;
+	DECLARE @pepw_end_date datetime;
+	SET @pepw_start_date  = '2024-05-17 00:00:00.000'
+	SET @pepw_end_date = SYSDATETIME()
+    SELECT id
+    INTO #batches
+    FROM CLINK_DAILY_COPY.dbo.BATCH
+    WHERE screened_date BETWEEN @pepw_start_date AND @pepw_end_date
+    AND user_id = 'batchpep'
+    AND file_name NOT LIKE 'mp%'
+    AND file_name NOT LIKE 'prescreen%'
+    AND account_id = 1
+    SELECT id
+    INTO #pepw_folders
+    FROM CLINK_DAILY_COPY.dbo.FOLDERS WHERE name = 'public'
+    SELECT count(DISTINCT res.id) pep_weekly_cases
+    INTO #pep_weekly_1
+    FROM CLINK_DAILY_COPY.dbo.RESULTS as res
+    JOIN CLINK_DAILY_COPY.dbo.RESULT_SD as sd
+    ON (res.id = sd.result_id)
+    JOIN CLINK_DAILY_COPY.dbo.DISPOSITION as disp
+    ON (sd.id = disp.result_sd_id)
+    WHERE batch_id IN (SELECT * FROM #batches)
+        AND disp.disp_code IN ('c', 'g', 'o', '7', '5', '2', 'e', 'd')
+    SELECT count(DISTINCT res.id) pep_weekly_cases
+    INTO #pep_weekly_2
+    FROM CLINK_DAILY_COPY.dbo.RESULTS as res
+    JOIN CLINK_DAILY_COPY.dbo.RESULT_SD as sd
+    ON (res.id = sd.result_id)
+    JOIN CLINK_DAILY_COPY.dbo.DISPOSITION as disp
+    ON (sd.id = disp.result_sd_id)
+    WHERE batch_id IN (SELECT * FROM #batches)
+    AND disp.disp_code IN ('c', 'g', 'o', '7', '5', '2', 'e', 'd')
+    AND disp.old_folder_id IN (10000, 10001, 10002, 10003, 10405)
+    SELECT (SELECT * FROM #pep_weekly_1) - (SELECT * FROM #pep_weekly_2) as pep_weekly_cases
+END
+
+/*
+query to retrieve weekly gwl volumes which then needs to be added to result of the query above - can be used as soon as 
+the last screening batch has been finished screening; result goes to statistics excel row 16 under "No of weekly cases" value
+*/
+BEGIN
+    SET NOCOUNT ON;
+    IF OBJECT_ID('tempdb..#gwl_weekly') IS NOT NULL
+    DROP TABLE #gwl_weekly
+    IF OBJECT_ID('tempdb..#gwl_weekly_nobco') IS NOT NULL
+    DROP TABLE #gwl_weekly_nobco
+    IF OBJECT_ID('tempdb..#gwl_weekly_public') IS NOT NULL
+    DROP TABLE #gwl_weekly_public
+    IF OBJECT_ID('tempdb..#folders') IS NOT NULL
+    DROP TABLE #folders
+	DECLARE @start_date datetime;
+	DECLARE @end_date datetime;
+	SET @start_date  = '2024-05-17 00:00:00.000'
+	SET @end_date = SYSDATETIME()
+    SELECT id
+    INTO #folders
+    FROM CLINK_DAILY_COPY.dbo.FOLDERS
+    WHERE name LIKE '%duplicates'
+    SELECT count(DISTINCT res.id) gwl_weekly
+    INTO #gwl_weekly
+    FROM CLINK_DAILY_COPY.dbo.RESULTS as res
+    JOIN CLINK_DAILY_COPY.dbo.RESULT_SD as sd
+    ON (res.id = sd.result_id)
+    JOIN CLINK_DAILY_COPY.dbo.BATCH as bat
+    ON (res.batch_id = bat.id)
+    JOIN CLINK_DAILY_COPY.dbo.DISPOSITION as disp
+    ON (sd.id = disp.result_sd_id)
+    WHERE res.screened_date BETWEEN @start_date AND @end_date
+    AND sd.match_type = 'gwl'
+    AND bat.file_name NOT LIKE 'mp%'
+    AND bat.file_name NOT LIKE 'mobilepay%'
+    AND bat.user_id <> 'batchpep'
+    AND disp.disp_code IN ('c', 'g', 'o', '7', '5', '2', 'e', 'd')
+    AND disp.old_folder_id NOT IN (SELECT * FROM #folders)
+    SELECT count(DISTINCT res.id) gwl_weekly_nobco
+    INTO #gwl_weekly_nobco
+    FROM CLINK_DAILY_COPY.dbo.RESULTS as res
+    JOIN CLINK_DAILY_COPY.dbo.RESULT_SD as sd
+    ON (res.id = sd.result_id)
+    JOIN CLINK_DAILY_COPY.dbo.BATCH as bat
+    ON (res.batch_id = bat.id)
+    JOIN CLINK_DAILY_COPY.dbo.DISPOSITION as disp
+    ON (sd.id = disp.result_sd_id)
+    JOIN CLINK_DAILY_COPY.dbo.RESULT_CUST_DATA as cdata
+    ON (res.id = cdata.result_id)
+    WHERE res.screened_date BETWEEN @start_date AND @end_date
+    AND sd.match_type = 'gwl'
+    AND bat.file_name NOT LIKE 'mp%'
+    AND bat.file_name NOT LIKE 'mobilepay%'
+    AND bat.user_id <> 'batchpep'
+    AND disp.disp_code IN ('c', 'g', 'o', '7', '5', '2', 'e', 'd')
+    AND cdata.field = 'data source code'
+    AND cdata.field_value LIKE 'nobco%'
+    AND disp.old_folder_id NOT IN (SELECT * FROM #folders)
+    SELECT count(DISTINCT res.id) gwl_weekly_public
+    INTO #gwl_weekly_public
+    FROM CLINK_DAILY_COPY.dbo.RESULTS as res
+    JOIN CLINK_DAILY_COPY.dbo.RESULT_SD as sd
+    ON (res.id = sd.result_id)
+    JOIN CLINK_DAILY_COPY.dbo.BATCH as bat
+    ON (res.batch_id = bat.id)
+    JOIN CLINK_DAILY_COPY.dbo.DISPOSITION as disp
+    ON (sd.id = disp.result_sd_id)
+    WHERE res.screened_date BETWEEN @start_date AND @end_date
+    AND sd.match_type = 'gwl'
+    AND bat.file_name NOT LIKE 'mp%'
+    AND bat.file_name NOT LIKE 'mobilepay%'
+    AND bat.user_id <> 'batchpep'
+    AND disp.disp_code IN ('c', 'g', 'o', '7', '5', '2', 'e', 'd')
+    AND disp.old_folder_id IN (10000, 10001, 10002, 10003, 10405)
+    AND disp.old_folder_id NOT IN (SELECT * FROM #folders)
+    SELECT (SELECT * FROM #gwl_weekly) - (SELECT * FROM #gwl_weekly_nobco) - (SELECT * FROM #gwl_weekly_public) 
+    as gwl_cases
+END

@@ -1,7 +1,5 @@
 # MSSQL Weekly Statistics Optimizer
 
----
-
 ## Overview
 
 This project focuses on optimizing recurring SQL queries that were previously slow and dependent on multiple servers. The goal was to **reduce execution time**, **consolidate data retrieval**, and **improve query performance** within Microsoft SQL Server.

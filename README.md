@@ -1,27 +1,36 @@
-Project Overview
+# MSSQL Weekly Statistics Optimizer
 
-This project focuses on optimizing recurring SQL queries that were slow and required multiple servers to fetch data. The goal was to reduce execution time, consolidate data retrieval, and improve overall query efficiency in Microsoft SQL Server.
+---
 
-The optimization process involved parameterizing queries, using temporary tables, and creating a centralized query structure to pull weekly statistics from a single server instance.
+## Overview
 
-Tools & Technologies
+This project focuses on optimizing recurring SQL queries that were previously slow and dependent on multiple servers. The goal was to **reduce execution time**, **consolidate data retrieval**, and **improve query performance** within Microsoft SQL Server.
 
-T-SQL (Transact-SQL)
+The optimization process included:
 
-Microsoft SQL Server Management Studio (SSMS)
+* Parameterizing repetitive queries
+* Using temporary tables for intermediate data storage
+* Designing a centralized query structure for weekly statistics
 
-Key Improvements
+---
 
-Reduced data retrieval time by consolidating multiple queries into one parameterized structure.
+## Tools & Technologies
 
-Used temporary tables for faster joins and aggregations.
+* **T-SQL (Transact-SQL)**
+* **Microsoft SQL Server Management Studio (SSMS)**
 
-Simplified maintenance by centralizing scripts into a single optimized process.
+---
 
-Results & Outcome
+## Key Improvements
 
-Query runtime reduced from minutes to seconds.
+* Reduced data retrieval time by merging multiple queries into one parameterized structure
+* Improved performance using temporary tables for joins and aggregations
+* Simplified maintenance by centralizing scripts into a single optimized process
 
-Data is now retrieved from a single SQL instance.
+---
 
-Improved maintainability and performance for future updates.
+## Results & Impact
+
+* Query runtime reduced from *minutes to seconds*
+* All data now retrieved from a *single SQL instance*
+* Easier maintenance, faster reporting, and improved scalability
